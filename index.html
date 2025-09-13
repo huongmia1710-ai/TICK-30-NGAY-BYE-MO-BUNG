@@ -48,6 +48,11 @@
   #journalForm input,#journalForm textarea{width:100%;margin:6px 0;padding:8px;border:1px solid #ccc;border-radius:6px}
   #journalForm .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
   .small{font-size:13px;color:var(--muted)}
+
+  /* nhỏ cho button */
+  button { cursor: pointer; }
+  #addMemberBtn { padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#fff; }
+  input#newMemberName { padding:8px; border-radius:6px; border:1px solid #ddd; }
 </style>
 </head>
 <body>
@@ -128,7 +133,7 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-const ROOM_ID = "main"; 
+const ROOM_ID = "main";
 const docRef = () => db.collection("rooms").doc(ROOM_ID);
 
 /* ================== STATE ================== */
@@ -144,11 +149,11 @@ function defaultMembers(){
 }
 function defaultState(){
   return {
-    members: defaultMembers(),                   // động
-    days: Array.from({length:DAYS},()=>({})),    // mỗi ngày: id -> bool
-    startDate: {},                               // id -> YYYY-MM-DD
-    journal: {},                                  // `${id}_${day}` -> {weight,waist,note}
-    milestone: {}                                 // id -> {7:true,15:true,30:true}
+    members: defaultMembers(),
+    days: Array.from({length:DAYS},()=>({})),
+    startDate: {},
+    journal: {},
+    milestone: {}
   };
 }
 let state=defaultState();
@@ -314,6 +319,59 @@ function deleteMember(id){
   toast("Đã xoá thành viên 🗑️");
 }
 
+/* ================== ADD MEMBER ================== */
+function addMember(){
+  const raw = (document.getElementById('newMemberName') || {}).value || '';
+  const name = raw.trim();
+  if(!name) return toast('Nhập tên thành viên trước khi thêm!');
+
+  // tránh trùng id (dùng slugify)
+  let id = slugify(name);
+  // nếu id trùng, thêm hậu tố số
+  let suffix = 1;
+  while(state.members.some(m => m.id === id)){
+    id = slugify(name) + '_' + suffix;
+    suffix++;
+    if(suffix>100) break;
+  }
+
+  // tránh trùng tên hiển thị (case-insensitive)
+  if(state.members.some(m => m.name.toLowerCase() === name.toLowerCase())){
+    if(!confirm('Đã tồn tại tên giống vậy. Vẫn muốn thêm?')) return;
+  }
+
+  // chọn màu theo pool, lần lượt hoặc random
+  const used = state.members.map(m=>m.color).filter(Boolean);
+  const color = COLOR_POOL.find(c=>!used.includes(c)) || COLOR_POOL[Math.floor(Math.random()*COLOR_POOL.length)];
+
+  const newMember = { id, name, color };
+
+  // 1) thêm vào state.members
+  state.members.push(newMember);
+
+  // 2) đảm bảo days có key cho member mới
+  for(let d=0; d<DAYS; d++){
+    if(typeof state.days[d][id] === 'undefined') state.days[d][id] = false;
+  }
+
+  // 3) lưu lên Firestore (save() dùng merge:true)
+  try{
+    save();
+    // reset input
+    const input = document.getElementById('newMemberName');
+    if(input) input.value = '';
+    // render lại UI
+    renderAll();
+    toast('Đã thêm thành viên ✅');
+    // optional: tự chọn new member trong select
+    const sel = document.getElementById('whoSelect');
+    if(sel){ sel.value = id; }
+  } catch(e){
+    console.error('Lỗi khi thêm thành viên:', e);
+    toast('Lỗi khi thêm thành viên. Xem console.');
+  }
+}
+
 /* ================== RENDER ================== */
 let chart; // Chart.js instance
 
@@ -414,10 +472,13 @@ function renderAll(){
 }
 
 /* ================== EVENTS ================== */
-document.getElementById('addMemberBtn').onclick=()=>{
-  addMember();
-};
-document.getElementById('saveStartBtn').onclick=saveStart;
+document.addEventListener('DOMContentLoaded', ()=> {
+  const addBtn = document.getElementById('addMemberBtn');
+  if(addBtn) addBtn.addEventListener('click', addMember);
+
+  const saveBtn = document.getElementById('saveStartBtn');
+  if(saveBtn) saveBtn.addEventListener('click', saveStart);
+});
 
 /* ================== BOOT ================== */
 subscribeRealtime();
